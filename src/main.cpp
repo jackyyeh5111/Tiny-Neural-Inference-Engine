@@ -252,6 +252,25 @@ onnx::TensorProto* gemm(const std::vector<const onnx::TensorProto*>& inputs, con
         throw std::invalid_argument("Gemm operator expects exactly three input tensors.");
     }
 
+    // Parse GEMM attributes
+    float alpha = 1.0f, beta = 1.0f;
+    int transA = 0, transB = 0;
+    
+    for (const auto& attr : node.attribute()) {
+        if (attr.name() == "alpha") {
+            alpha = attr.f();
+        } else if (attr.name() == "beta") {
+            beta = attr.f();
+        } else if (attr.name() == "transA") {
+            transA = attr.i();
+        } else if (attr.name() == "transB") {
+            transB = attr.i();
+        }
+    }
+    
+    std::cout << "GEMM attributes: alpha=" << alpha << ", beta=" << beta 
+              << ", transA=" << transA << ", transB=" << transB << std::endl;
+
     const auto* A = inputs[0];
     const auto* B = inputs[1];
     const auto* C = inputs[2];
@@ -262,28 +281,33 @@ onnx::TensorProto* gemm(const std::vector<const onnx::TensorProto*>& inputs, con
         throw std::invalid_argument("Invalid dimensions for Gemm inputs.");
     }
     
-    // For matrix multiplication A * B: A->dims(1) must equal B->dims(0)
-    if (A->dims(1) != B->dims(0)) {
-        std::cerr << "Matrix dimension mismatch: A cols=" << A->dims(1) << ", B rows=" << B->dims(0) << std::endl;
+    // Get effective dimensions after potential transpose
+    int64_t A_rows = transA ? A->dims(1) : A->dims(0);
+    int64_t A_cols = transA ? A->dims(0) : A->dims(1);
+    int64_t B_rows = transB ? B->dims(1) : B->dims(0);
+    int64_t B_cols = transB ? B->dims(0) : B->dims(1);
+    
+    std::cout << "A.shape = (" << A->dims(0) << ", " << A->dims(1) << ")" << (transA ? " [transposed]" : "") << std::endl;
+    std::cout << "B.shape = (" << B->dims(0) << ", " << B->dims(1) << ")" << (transB ? " [transposed]" : "") << std::endl;
+    std::cout << "C.shape = (" << C->dims(0) << ")" << std::endl;
+    std::cout << "Effective A: (" << A_rows << ", " << A_cols << "), B: (" << B_rows << ", " << B_cols << ")" << std::endl;
+    
+    // For matrix multiplication A * B: A_cols must equal B_rows
+    if (A_cols != B_rows) {
+        std::cerr << "Matrix dimension mismatch: A cols=" << A_cols << ", B rows=" << B_rows << std::endl;
         throw std::invalid_argument("Matrix dimensions are not compatible for multiplication in Gemm.");
     }
     
     // Bias vector C should match the number of output columns
-    if (B->dims(1) != C->dims(0)) {
-        std::cerr << "Bias dimension mismatch: B cols=" << B->dims(1) << ", C size=" << C->dims(0) << std::endl;
+    if (B_cols != C->dims(0)) {
+        std::cerr << "Bias dimension mismatch: B cols=" << B_cols << ", C size=" << C->dims(0) << std::endl;
         throw std::invalid_argument("Bias dimensions are not compatible with the result in Gemm.");
     }
 
-    std::cout << "A.shape = (" << A->dims(0) << ", " << A->dims(1) << ")" << std::endl;
-    std::cout << "B.shape = (" << B->dims(0) << ", " << B->dims(1) << ")" << std::endl;
-    std::cout << "C.shape = (" << C->dims(0) << ")" << std::endl;
-
     // Calculate output dimensions for A * B
-    int64_t output_rows = A->dims(0);  // Rows from A
-    int64_t output_cols = B->dims(1);  // Columns from B
-    int64_t inner_dim = A->dims(1);    // Inner dimension for multiplication
-
-    std::cout << "Output dimensions: " << output_rows << " x " << output_cols << std::endl;
+    int64_t output_rows = A_rows;
+    int64_t output_cols = B_cols;
+    int64_t inner_dim = A_cols;    std::cout << "Output dimensions: " << output_rows << " x " << output_cols << std::endl;
 
     // Create output tensor
     onnx::TensorProto* result = new onnx::TensorProto;
@@ -310,8 +334,21 @@ onnx::TensorProto* gemm(const std::vector<const onnx::TensorProto*>& inputs, con
         }
     }
     
-    // Call the GEMM function: out = A * B + bias
-    gemm(AData, BData, bias_expanded.data(), outData.data(), output_rows, inner_dim, output_cols);
+    // Call the GEMM function with transpose handling
+    if (transB) {
+        // If B is transposed, we need to handle it differently
+        // For now, let's create a transposed copy of B
+        std::vector<float> B_transposed(B->dims(0) * B->dims(1));
+        for (int i = 0; i < B->dims(0); ++i) {
+            for (int j = 0; j < B->dims(1); ++j) {
+                B_transposed[j * B->dims(0) + i] = BData[i * B->dims(1) + j];
+            }
+        }
+        gemm(AData, B_transposed.data(), bias_expanded.data(), outData.data(), output_rows, inner_dim, output_cols);
+    } else {
+        // No transpose needed
+        gemm(AData, BData, bias_expanded.data(), outData.data(), output_rows, inner_dim, output_cols);
+    }
     
     std::cout << "Finished gemm" << std::endl;
 

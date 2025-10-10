@@ -15,16 +15,6 @@ if [ ! -f "CMakeLists.txt" ]; then
     exit 1
 fi
 
-# Check for required dependencies
-echo "📋 Checking dependencies..."
-
-# Check for cmake
-if ! command -v cmake &> /dev/null; then
-    echo "❌ Error: CMake is not installed"
-    echo "   Please install CMake 3.10 or higher"
-    exit 1
-fi
-
 # Check for protoc
 if ! command -v protoc &> /dev/null; then
     echo "❌ Error: Protocol Buffers compiler (protoc) is not installed"

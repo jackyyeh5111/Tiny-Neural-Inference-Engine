@@ -13,7 +13,7 @@
 
 2. **Build the project:**
    ```bash
-   ./build.sh
+   protoc --cpp_out=. src/onnx-ml.proto
    ```
 
 3. **Run MNIST inference:**
