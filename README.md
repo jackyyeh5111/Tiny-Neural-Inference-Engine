@@ -29,15 +29,6 @@ sudo apt update
 sudo apt install build-essential cmake libprotobuf-dev protobuf-compiler
 ```
 
-#### macOS:
-```bash
-# Using Homebrew
-brew install cmake protobuf
-
-# Using MacPorts
-sudo port install cmake protobuf3-cpp
-```
-
 #### Optional: For running tests
 ```bash
 # Ubuntu/Debian
@@ -81,18 +72,22 @@ brew install googletest
 ## Usage
 
 ### Basic Usage
-```bash
-./src/inference_engine <model.onnx> <input_image.ubyte>
-```
+- Infer with my custom c++ inference engine
+   ```bash
+   ./src/inference_engine <model.onnx> <input_image.ubyte>
 
-### Example Commands
-```bash
-# Using existing test data
-./src/inference_engine ../models/mnist_ffn.onnx ../inputs/image_0.ubyte
+   # ex: 
+   ./src/inference_engine ../models/mnist_ffn.onnx ../inputs/image_0.ubyte
+   ```
 
-# Using generated test images (after running the generator)
-./src/inference_engine ../models/mnist_ffn.onnx ../inputs/digit_5_test.ubyte
-```
+- Infer with onnxruntime
+   ```bash
+   cd utils/
+   
+   python infer.py
+   # or 
+   python batch_infer.py
+   ``
 
 ## Input Image Format
 
