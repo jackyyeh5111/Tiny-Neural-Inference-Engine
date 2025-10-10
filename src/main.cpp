@@ -1,138 +1,599 @@
 #include <iostream>
-#include <chrono>
-#include "tnie/tnie.h"
+#include <fstream>
+#include <random>
+#include <assert.h>
+#include <vector>
+#include <iomanip> // For std::hex
+#include <numeric> // for std::accumulate
+#include <span>
+#include <cmath>   // For exp() function in softmax
+#include <algorithm> // For max_element in argmax
 
-using namespace tnie;
+#include "onnx-ml.pb.h" // Include the generated header
+#include "gemm.h"
 
-void demo_tensor_operations() {
-    std::cout << "\n=== Tensor Operations Demo ===" << std::endl;
-    
-    // Create tensors
-    auto tensor1 = Tensor::ones(Shape({2, 3}));
-    auto tensor2 = Tensor::random(Shape({2, 3}));
-    
-    std::cout << "Created tensor1 (ones): shape [2, 3]" << std::endl;
-    std::cout << "Created tensor2 (random): shape [2, 3]" << std::endl;
-    
-    // Print some values
-    std::cout << "tensor1[0] = " << tensor1[0] << std::endl;
-    std::cout << "tensor2[0] = " << tensor2[0] << std::endl;
-    
-    // Test tensor operations
-    tensor1.fill(2.5f);
-    std::cout << "After fill(2.5), tensor1[0] = " << tensor1[0] << std::endl;
-}
+onnx::TensorProto *relu(std::vector<const onnx::TensorProto *> &inputs, const onnx::NodeProto &node);
+onnx::TensorProto *flatten(std::vector<const onnx::TensorProto *> &inputs, const onnx::NodeProto &node);
+onnx::TensorProto *read_input(std::string filename);
+onnx::TensorProto* gemm(const std::vector<const onnx::TensorProto*>& inputs, const onnx::NodeProto& node);
+float extract_const(onnx::NodeProto node);
+void printRawTensorData(const onnx::TensorProto &tensor);
+int getFlattenAxis(const onnx::NodeProto &node);
 
-void demo_gemm_operation() {
-    std::cout << "\n=== GEMM Operation Demo ===" << std::endl;
-    
-    // Create matrices for A * B = C
-    // A: 2x3, B: 3x4, C: 2x4
-    auto A = Tensor(Shape({2, 3}), {1.0f, 2.0f, 3.0f, 4.0f, 5.0f, 6.0f});
-    auto B = Tensor(Shape({3, 4}), {1.0f, 0.0f, 0.0f, 1.0f,
-                                    0.0f, 1.0f, 0.0f, 0.0f,
-                                    0.0f, 0.0f, 1.0f, 0.0f});
-    
-    std::cout << "Matrix A (2x3): [1,2,3; 4,5,6]" << std::endl;
-    std::cout << "Matrix B (3x4): identity-like matrix" << std::endl;
-    
-    // Create GEMM operator
-    auto gemm_op = OperatorFactory::create_gemm("test_gemm");
-    
-    // Execute GEMM
-    std::vector<Tensor> inputs = {A, B};
-    std::vector<Tensor> outputs;
-    
-    auto start = std::chrono::high_resolution_clock::now();
-    gemm_op->forward(inputs, outputs);
-    auto end = std::chrono::high_resolution_clock::now();
-    
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-    
-    std::cout << "GEMM execution time: " << duration.count() << " microseconds" << std::endl;
-    std::cout << "Result shape: [" << outputs[0].shape()[0] << ", " << outputs[0].shape()[1] << "]" << std::endl;
-    std::cout << "Result[0] = " << outputs[0][0] << std::endl;
-    std::cout << "Result[1] = " << outputs[0][1] << std::endl;
-}
+// Classification helper functions for MNIST digit recognition
+std::vector<float> softmax(const std::vector<float>& logits);
+int argmax(const std::vector<float>& probabilities);
+void classify_mnist_output(const float* output_data, int output_size);
 
-void demo_graph_execution() {
-    std::cout << "\n=== Graph Execution Demo ===" << std::endl;
-    
-    // Create a simple computation graph:
-    // input -> gemm1 -> gemm2 -> output
-    
-    GraphExecutor executor;
-    std::vector<Tensor> tensors;
-    
-    // Add input tensors
-    tensors.push_back(Tensor::ones(Shape({2, 3})));     // tensor 0: input
-    tensors.push_back(Tensor::random(Shape({3, 2})));   // tensor 1: weight1
-    tensors.push_back(Tensor::random(Shape({2, 1})));   // tensor 2: weight2
-    
-    std::cout << "Created computation graph with 2 GEMM operations" << std::endl;
-    
-    // Add operators to graph
-    auto gemm1 = OperatorFactory::create_gemm("gemm1");
-    auto gemm2 = OperatorFactory::create_gemm("gemm2");
-    
-    size_t gemm1_node = executor.add_operator(std::move(gemm1), {0, 1}, {3}); // inputs: 0,1 -> output: 3
-    size_t gemm2_node = executor.add_operator(std::move(gemm2), {3, 2}, {4}); // inputs: 3,2 -> output: 4
-    
-    std::cout << "Added GEMM1 node: " << gemm1_node << std::endl;
-    std::cout << "Added GEMM2 node: " << gemm2_node << std::endl;
-    
-    // Execute graph
-    auto start = std::chrono::high_resolution_clock::now();
-    executor.execute(tensors);
-    auto end = std::chrono::high_resolution_clock::now();
-    
-    auto duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start);
-    
-    std::cout << "Graph execution time: " << duration.count() << " microseconds" << std::endl;
-    std::cout << "Final output shape: [" << tensors[4].shape()[0] << ", " << tensors[4].shape()[1] << "]" << std::endl;
-    std::cout << "Final result[0] = " << tensors[4][0] << std::endl;
-}
-
-void print_system_info() {
-    std::cout << "\n=== System Info ===" << std::endl;
-    std::cout << "TNIE Version: " << get_version() << std::endl;
-    
-#ifdef ENABLE_AVX2
-    std::cout << "SIMD Support: AVX2 Enabled" << std::endl;
-#else
-    std::cout << "SIMD Support: Scalar only" << std::endl;
-#endif
-
-#ifdef DEBUG
-    std::cout << "Build Type: Debug" << std::endl;
-#else
-    std::cout << "Build Type: Release" << std::endl;
-#endif
-}
-
-int main() {
-    std::cout << "Tiny Neural Inference Engine - Demo Application" << std::endl;
-    std::cout << "================================================" << std::endl;
-    
-    try {
-        // Initialize the library
-        initialize();
-        
-        // Run demos
-        print_system_info();
-        demo_tensor_operations();
-        demo_gemm_operation();
-        demo_graph_execution();
-        
-        std::cout << "\n=== All demos completed successfully! ===" << std::endl;
-        
-        // Cleanup
-        finalize();
-        
-    } catch (const std::exception& e) {
-        std::cerr << "Error: " << e.what() << std::endl;
+int main(int argc, char **argv)
+{
+    if (argc != 3)
+    {
+        std::cerr << "Usage: " << argv[0] << " <model.onnx> <input.data>" << std::endl;
         return 1;
     }
+
+    std::string modelFile = argv[1];
+    std::string inputFile = argv[2];
+
+    std::cout << "ONNX model file: " << modelFile << std::endl;
+    std::cout << "User input file: " << inputFile << std::endl;
+
+    std::fstream input(modelFile, std::ios::in | std::ios::binary);
+    if (!input.is_open())
+    {
+        std::cerr << "Failed to open the ONNX model file!" << std::endl;
+        return -1;
+    }
+
+    onnx::ModelProto model;
+
+    // Parse the model from the file
+    if (!model.ParseFromIstream(&input))
+    {
+        std::cerr << "Failed to parse the ONNX model!" << std::endl;
+        return -1;
+    }
+
+    const onnx::GraphProto &graph = model.graph();
+
+    // Example: Print the model's graph input names
+    std::cout << "Model Inputs:" << std::endl;
+    for (const auto &input : graph.input())
+    {
+        std::cout << "  - " << input.name() << std::endl;
+    }
+
+    // Print graph outputs
+    std::cout << "\nOutputs:\n";
+    for (const auto &output : graph.output())
+    {
+        std::cout << "  - Name: " << output.name() << ", Type: " << output.type().denotation() << std::endl;
+    }
+    assert(graph.output_size() == 1);
+    const std::string graph_output = graph.output()[0].name();
+
+    // Print nodes (operators)
+    std::cout << "\nNodes (Operators):\n";
+    for (const auto &node : graph.node())
+    {
+        std::cout << "  - OpType: " << node.op_type();
+        std::cout << ", Name: " << node.name();
+        std::cout << ", Inputs: [";
+        for (const auto &input : node.input())
+        {
+            std::cout << input << " ";
+        }
+        std::cout << "], Outputs: [";
+        for (const auto &output : node.output())
+        {
+            std::cout << output << " ";
+        }
+        std::cout << "]\n";
+    }
+
+    std::map<std::string, const onnx::TensorProto *> weights;
+    for (const auto &init : graph.initializer())
+    {
+        std::cout << "Adding initializer: " << init.name() << std::endl;
+        weights[init.name()] = &init;
+    }
+
+    // Make mock input.
+    onnx::TensorProto *modelInput = read_input(inputFile);
+    weights[modelInput->name()] = modelInput;
+
+    // Iterate over nodes (topologically sorted)
+    std::cout << "iterating over graph" << std::endl;
+    std::cout << "-----------------" << std::endl;
+    std::cout << std::endl;
+    for (const auto &node : graph.node())
+    {
+
+        std::cout << "Node: " << node.name() << std::endl;
+
+        std::string op_type = node.op_type();
+        std::vector<const onnx::TensorProto *> inputs;
+
+        std::cout << "Inputs: ";
+        for (const std::string input_name : node.input())
+        {
+
+            if (weights.find(input_name) == weights.end())
+            {
+                std::cerr << "Input: " << input_name << " not in weights. Aborting." << std::endl;
+                exit(1);
+            }
+            const onnx::TensorProto *in = weights[input_name];
+            std::cout << in->name() << ", ";
+            inputs.push_back(in);
+        }
+        std::cout << std::endl;
+
+        if (op_type == "Gemm")
+        {
+            onnx::TensorProto* result = gemm(inputs, node);
+            weights[result->name()] = result;
+        }
+        else if (op_type == "Constant")
+        {
+            float constant = extract_const(node);
+        }
+        else if (op_type == "Flatten")
+        {
+            onnx::TensorProto* output = flatten(inputs, node);
+            weights[output->name()] = output;
+        }
+        else if (op_type == "Relu")
+        {
+            onnx::TensorProto* output = relu(inputs, node);
+            weights[output->name()] = output;
+        }
+        else
+        {
+            std::cerr << "Unsupported operation: " << op_type << ". Skipping..." << std::endl;
+        }
+        std::cout << std::endl;
+    }
+    // =================================================================
+    // SECTION: Final Output Processing and MNIST Classification
+    // =================================================================
     
+    if (weights.find(graph_output) != weights.end())
+    {
+        std::cout << "\n=== MNIST CLASSIFICATION RESULTS ===" << std::endl;
+        const onnx::TensorProto *res = weights[graph_output];
+        const float *output_data = (const float *)res->raw_data().data();
+        
+        // Determine output size based on tensor dimensions
+        int output_size = 1;
+        std::cout << "Output tensor dimensions: ";
+        for (int i = 0; i < res->dims_size(); ++i) {
+            std::cout << res->dims(i);
+            if (i < res->dims_size() - 1) std::cout << " x ";
+            output_size *= res->dims(i);
+        }
+        std::cout << " (total elements: " << output_size << ")" << std::endl;
+        
+        // Print raw logits
+        std::cout << "\nRaw model output (logits): ";
+        for (int i = 0; i < output_size; ++i)
+        {
+            std::cout << std::fixed << std::setprecision(4) << output_data[i];
+            if (i < output_size - 1) std::cout << ", ";
+        }
+        std::cout << std::endl;
+        
+        // Apply classification logic
+        classify_mnist_output(output_data, output_size);
+    }
+    else
+    {
+        std::cerr << "Error: Could not find model output tensor '" << graph_output << "'" << std::endl;
+    }
+
     return 0;
+}
+
+onnx::TensorProto *read_input(std::string filename)
+{
+    std::ifstream file(filename, std::ios::binary);
+
+    if (!file.is_open())
+    {
+        std::cerr << "Error opening file: " << filename << std::endl;
+        exit(1);
+    }
+
+    std::vector<unsigned char> bytes(784); // Preallocate for 784 bytes
+    file.read(reinterpret_cast<char *>(bytes.data()), bytes.size());
+
+    std::vector<float> floatValues(bytes.size());
+    for (size_t i = 0; i < bytes.size(); ++i)
+    {
+        floatValues[i] = static_cast<float>(bytes[i]); // Direct conversion and normalize.
+    }
+
+    std::cout << "File size: " << floatValues.size() << std::endl;
+    assert(floatValues.size() == 784);
+
+    onnx::TensorProto *modelInput = new onnx::TensorProto;
+    modelInput->set_name("onnx::Flatten_0");
+
+    // Set data type to FLOAT
+    modelInput->set_data_type(onnx::TensorProto::FLOAT);
+
+    // Set dimensions to [1, 1, 28, 28]
+    modelInput->add_dims(1);
+    modelInput->add_dims(1);
+    modelInput->add_dims(28);
+    modelInput->add_dims(28);
+
+    // Fill with 1s (assuming FLOAT data type)
+    modelInput->set_raw_data(floatValues.data(), floatValues.size() * sizeof(float));
+
+    int float_size = modelInput->raw_data().size() / sizeof(float);
+    std::cout << "input float_size: " << float_size << std::endl;
+    std::cout << "input:";
+    const float *raw = (float *)modelInput->raw_data().data();
+    for (int i = 0; i < float_size; ++i)
+    {
+        std::cout << " " << raw[i];
+    }
+    std::cout << std::endl;
+
+    return modelInput;
+}
+
+onnx::TensorProto* gemm(const std::vector<const onnx::TensorProto*>& inputs, const onnx::NodeProto& node) {
+    std::cout << "Op: Gemm" << std::endl;
+
+    if (inputs.size() != 3) {
+        throw std::invalid_argument("Gemm operator expects exactly three input tensors.");
+    }
+
+    const auto* A = inputs[0];
+    const auto* B = inputs[1];
+    const auto* C = inputs[2];
+
+    // Input Validation - A should be 2D, B should be 2D, C should be 1D (bias vector)
+    if (A->dims_size() != 2 || B->dims_size() != 2 || C->dims_size() != 1) {
+        std::cerr << "A dims: " << A->dims_size() << " B dims: " << B->dims_size() << " C dims: " << C->dims_size() << std::endl;
+        throw std::invalid_argument("Invalid dimensions for Gemm inputs.");
+    }
+    
+    // For matrix multiplication A * B: A->dims(1) must equal B->dims(0)
+    if (A->dims(1) != B->dims(0)) {
+        std::cerr << "Matrix dimension mismatch: A cols=" << A->dims(1) << ", B rows=" << B->dims(0) << std::endl;
+        throw std::invalid_argument("Matrix dimensions are not compatible for multiplication in Gemm.");
+    }
+    
+    // Bias vector C should match the number of output columns
+    if (B->dims(1) != C->dims(0)) {
+        std::cerr << "Bias dimension mismatch: B cols=" << B->dims(1) << ", C size=" << C->dims(0) << std::endl;
+        throw std::invalid_argument("Bias dimensions are not compatible with the result in Gemm.");
+    }
+
+    std::cout << "A.shape = (" << A->dims(0) << ", " << A->dims(1) << ")" << std::endl;
+    std::cout << "B.shape = (" << B->dims(0) << ", " << B->dims(1) << ")" << std::endl;
+    std::cout << "C.shape = (" << C->dims(0) << ")" << std::endl;
+
+    // Calculate output dimensions for A * B
+    int64_t output_rows = A->dims(0);  // Rows from A
+    int64_t output_cols = B->dims(1);  // Columns from B
+    int64_t inner_dim = A->dims(1);    // Inner dimension for multiplication
+
+    std::cout << "Output dimensions: " << output_rows << " x " << output_cols << std::endl;
+
+    // Create output tensor
+    onnx::TensorProto* result = new onnx::TensorProto;
+    result->set_data_type(onnx::TensorProto::FLOAT);
+    result->add_dims(output_rows);
+    result->add_dims(output_cols);
+
+    // Allocate memory for output
+    std::vector<float> outData(output_rows * output_cols);
+    std::cout << "outData size: " << outData.size() << std::endl;
+
+    // Get raw data pointers
+    const float* AData = reinterpret_cast<const float*>(A->raw_data().data());
+    const float* BData = reinterpret_cast<const float*>(B->raw_data().data());
+    const float* CData = reinterpret_cast<const float*>(C->raw_data().data());
+
+    std::cout << "Running gemm" << std::endl;
+    
+    // Expand bias vector to match output dimensions for GEMM operation
+    std::vector<float> bias_expanded(output_rows * output_cols);
+    for (int r = 0; r < output_rows; ++r) {
+        for (int c = 0; c < output_cols; ++c) {
+            bias_expanded[r * output_cols + c] = CData[c];
+        }
+    }
+    
+    // Call the GEMM function: out = A * B + bias
+    gemm(AData, BData, bias_expanded.data(), outData.data(), output_rows, inner_dim, output_cols);
+    
+    std::cout << "Finished gemm" << std::endl;
+
+    // Set the raw data
+    result->set_raw_data(outData.data(), sizeof(float) * outData.size());
+
+    // Set output name
+    if (node.output_size() != 1) {
+        throw std::runtime_error("Gemm operator expects exactly one output tensor.");
+    }
+    result->set_name(node.output()[0]);
+
+    // Print output values (first few for debugging)
+    std::cout << "GEMM output: ";
+    int print_limit = std::min(10, (int)outData.size());
+    for (int i = 0; i < print_limit; ++i) {
+        std::cout << outData[i] << ", ";
+    }
+    if (outData.size() > print_limit) std::cout << "...";
+    std::cout << std::endl;
+
+    return result;
+}
+
+// flatten returns a new flattened version of node. Caller is responsible for managing memory.
+onnx::TensorProto *flatten(std::vector<const onnx::TensorProto *> &inputs, const onnx::NodeProto &node)
+{
+    std::cout << "Op: Flatten" << std::endl;
+    if (inputs.size() != 1)
+    {
+        exit(1);
+    }
+
+    const auto *inputTensor = inputs[0];
+
+    int64_t axis = getFlattenAxis(node);
+    int64_t dimBefore = std::accumulate(inputTensor->dims().begin(), inputTensor->dims().begin() + axis, 1, std::multiplies<int64_t>());
+    int64_t dimAfter = std::accumulate(inputTensor->dims().begin() + axis, inputTensor->dims().end(), 1, std::multiplies<int64_t>());
+
+    onnx::TensorProto *flattened = new onnx::TensorProto(*inputTensor);
+
+    flattened->clear_dims();
+    flattened->add_dims(dimBefore);
+    flattened->add_dims(dimAfter);
+
+    // Diagnostic printing
+    int float_size = flattened->raw_data().size() / sizeof(float);
+    std::cout << "flatten float_size: " << float_size << std::endl;
+    std::cout << "flatten out:";
+    const float *raw = (float *)flattened->raw_data().data();
+    for (int i = 0; i < float_size; ++i)
+    {
+        std::cout << " " << raw[i];
+    }
+    std::cout << std::endl;
+
+    // Set tensor name.
+    assert(node.output_size() == 1);
+    std::string out_name = node.output()[0];
+    flattened->set_name(out_name.c_str()); // Set the input name (important for ONNX runtimes)
+    std::cout << "Flattened name: " << flattened->name() << std::endl;
+    return flattened;
+}
+
+// relu
+onnx::TensorProto *relu(std::vector<const onnx::TensorProto *> &inputs, const onnx::NodeProto &node)
+{
+    std::cout << "Op: Relu" << std::endl;
+    assert(inputs.size() == 1);
+    const auto &inputTensor = *inputs[0];
+
+    onnx::TensorProto *outputTensor = new onnx::TensorProto(inputTensor);
+
+    if (outputTensor->data_type() == onnx::TensorProto::FLOAT && !outputTensor->raw_data().empty())
+    {
+        const float *inputData = reinterpret_cast<const float *>(outputTensor->raw_data().data());
+        int numElements = outputTensor->raw_data().size() / sizeof(float);
+
+        // Modify the outputTensor's raw_data in place
+        float *outputData = reinterpret_cast<float *>(outputTensor->mutable_raw_data()->data());
+        for (int i = 0; i < numElements; ++i)
+        {
+            outputData[i] = std::max(0.0f, inputData[i]);
+        }
+
+        // Print the modified output values (optional)
+        std::cout << "ReLU: ";
+        assert(outputTensor->dims_size() == 2);
+        for (int i = 0; i < outputTensor->dims(1); ++i)
+        { // Assuming the second dimension is the relevant one
+            std::cout << outputData[i] << ", ";
+        }
+        std::cout << std::endl;
+    }
+    else
+    {
+        std::cerr << "Unsupported data type or empty raw data in ReLU" << std::endl;
+        exit(1);
+    }
+
+    assert(node.output_size() == 1);
+    outputTensor->set_name(node.output(0));
+    std::cout << "ReLU name: " << outputTensor->name() << std::endl;
+
+    return outputTensor;
+}
+
+float extract_const(onnx::NodeProto node)
+{
+    std::cout << "Const: " << node.output(0) << std::endl;
+    const onnx::AttributeProto *value_attr = nullptr;
+    for (const auto &attr : node.attribute())
+    {
+        if (attr.name() == "value")
+        {
+            value_attr = &attr;
+            break;
+        }
+    }
+    if (!value_attr)
+    {
+        std::cerr << "Expected constant to have value attr, got nothing" << std::endl;
+        exit(1);
+    }
+    const onnx::TensorProto &tensor = value_attr->t();
+    float floatValue;
+    if (tensor.data_type() != onnx::TensorProto::FLOAT)
+    {
+        std::cerr << "Const is not of float type" << std::endl;
+        exit(1);
+    }
+
+    if (tensor.dims_size() == 0)
+    {
+        // Const is a scalar
+        floatValue = tensor.float_data(0); // Extract the float
+        std::cout << "Constant value: " << floatValue << std::endl;
+        return floatValue;
+    }
+    std::cerr << "Unimplemented handling for multi-dim consts" << std::endl;
+    exit(1);
+}
+
+void printRawTensorData(const onnx::TensorProto &tensor)
+{
+    // Determine data type
+    switch (tensor.data_type())
+    {
+    case onnx::TensorProto_DataType_FLOAT:
+    {
+        const float *data = tensor.float_data().data();
+        for (int i = 0; i < tensor.float_data_size(); ++i)
+        {
+            std::cout << data[i] << " ";
+        }
+        break;
+    }
+    case onnx::TensorProto_DataType_INT32:
+    {
+        const int32_t *data = tensor.int32_data().data();
+        for (int i = 0; i < tensor.int32_data_size(); ++i)
+        {
+            std::cout << data[i] << " ";
+        }
+        break;
+    }
+    // ... (Add cases for other data types: INT64, UINT8, etc.)
+    default:
+        std::cerr << "Unsupported data type: " << tensor.data_type() << std::endl;
+    }
+    std::cout << std::endl; // Newline after printing
+}
+
+int getFlattenAxis(const onnx::NodeProto &node)
+{
+    int axis = 1; // Default value (as per ONNX specification)
+
+    for (const auto &attr : node.attribute())
+    {
+        if (attr.name() == "axis")
+        {
+            if (attr.has_i())
+            {
+                axis = attr.i(); // Get the 'axis' value
+                break;
+            }
+            else
+            {
+                std::cerr << "Error: Flatten node has 'axis' attribute, but it's not an integer." << std::endl;
+            }
+        }
+    }
+
+    return axis;
+}
+
+// =================================================================
+// SECTION: MNIST Classification Functions
+// =================================================================
+
+/**
+ * @brief Applies softmax activation to convert logits to probabilities
+ * 
+ * Softmax function: softmax(x_i) = exp(x_i) / sum(exp(x_j) for all j)
+ * This converts raw model outputs (logits) to a probability distribution.
+ * 
+ * @param logits Raw output values from the neural network
+ * @return Vector of probabilities that sum to 1.0
+ */
+std::vector<float> softmax(const std::vector<float>& logits) {
+    std::vector<float> probabilities(logits.size());
+    
+    // Find maximum value for numerical stability
+    float max_logit = *std::max_element(logits.begin(), logits.end());
+    
+    // Compute exp(x_i - max) and sum
+    float sum = 0.0f;
+    for (size_t i = 0; i < logits.size(); ++i) {
+        probabilities[i] = std::exp(logits[i] - max_logit);
+        sum += probabilities[i];
+    }
+    
+    // Normalize to get probabilities
+    for (size_t i = 0; i < probabilities.size(); ++i) {
+        probabilities[i] /= sum;
+    }
+    
+    return probabilities;
+}
+
+/**
+ * @brief Finds the index of the maximum value (predicted class)
+ * 
+ * @param probabilities Vector of probability values
+ * @return Index of the maximum probability (0-9 for MNIST digits)
+ */
+int argmax(const std::vector<float>& probabilities) {
+    return std::distance(probabilities.begin(), 
+                        std::max_element(probabilities.begin(), probabilities.end()));
+}
+
+/**
+ * @brief Classifies MNIST output and displays results
+ * 
+ * Takes the raw neural network output, applies softmax to get probabilities,
+ * finds the predicted digit, and displays detailed classification results.
+ * 
+ * @param output_data Raw output data from the model
+ * @param output_size Number of output classes (should be 10 for MNIST)
+ */
+void classify_mnist_output(const float* output_data, int output_size) {
+    // Convert raw data to vector for easier processing
+    std::vector<float> logits(output_data, output_data + output_size);
+    
+    // Apply softmax to get probabilities
+    std::vector<float> probabilities = softmax(logits);
+    
+    // Find predicted class
+    int predicted_digit = argmax(probabilities);
+    float confidence = probabilities[predicted_digit];
+    
+    // Display results
+    std::cout << "\n--- CLASSIFICATION RESULTS ---" << std::endl;
+    std::cout << "Predicted digit: " << predicted_digit << std::endl;
+    std::cout << "Confidence: " << std::fixed << std::setprecision(2) << (confidence * 100.0f) << "%" << std::endl;
+    
+    std::cout << "\nProbability distribution:" << std::endl;
+    for (int i = 0; i < output_size; ++i) {
+        std::cout << "  Digit " << i << ": " << std::fixed << std::setprecision(4) 
+                  << probabilities[i] << " (" << std::setprecision(1) 
+                  << (probabilities[i] * 100.0f) << "%)" << std::endl;
+    }
+    
+    // Visual confidence bar for the predicted digit
+    std::cout << "\nConfidence bar for digit " << predicted_digit << ": ";
+    int bar_length = (int)(confidence * 20); // Scale to 20 characters
+    for (int i = 0; i < 20; ++i) {
+        if (i < bar_length) {
+            std::cout << "█";
+        } else {
+            std::cout << "░";
+        }
+    }
+    std::cout << " " << std::setprecision(1) << (confidence * 100.0f) << "%" << std::endl;
 }

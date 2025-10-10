@@ -1,205 +1,271 @@
-# Tiny Neural Inference Engine (TNIE)
+# MNIST ONNX Inference Engine
 
-A minimal neural network inference engine with SIMD optimizations and multi-threading support, built for educational purposes and performance experimentation.
-
-## Project Goals
-
-- **Minimal tensor and operator abstraction**: Clean, efficient tensor operations with shape management
-- **SIMD optimizations**: AVX2 implementations for GEMM and Conv2D with scalar fallbacks
-- **Graph execution**: Dependency-aware operator scheduling and execution
-- **Multi-threading**: Worker thread pool with work stealing for parallel operator execution
-- **Performance profiling**: Comprehensive benchmarking infrastructure for SIMD vs scalar and single vs multi-thread comparisons
+A lightweight C++ inference engine for MNIST digit classification using ONNX models. This engine loads ONNX neural network models and performs inference on 28x28 grayscale images to classify handwritten digits (0-9).
 
 ## Features
 
-- ✅ **Tensor operations**: N-dimensional tensors with efficient memory management
-- ✅ **Core operators**: GEMM (matrix multiplication) and Conv2D implementations
-- ✅ **Graph execution**: Topological sorting and dependency-aware execution
-- ✅ **SIMD support**: AVX2 optimizations with runtime detection
-- ✅ **Testing**: Comprehensive unit tests with GoogleTest
-- ✅ **Benchmarking**: Performance measurement infrastructure
-- 🔄 **Multi-threading**: (Coming in future weeks)
-- 🔄 **Advanced optimizations**: (Coming in future weeks)
+- ✅ ONNX model loading and parsing using Protocol Buffers
+- ✅ Support for common neural network operations:
+  - Flatten (tensor reshaping)
+  - GEMM (General Matrix Multiplication) - fully connected layers
+  - ReLU activation function
+  - Constant value handling
+- ✅ MNIST image loading from binary files
+- ✅ Softmax classification with confidence scores
+- ✅ Detailed output visualization
 
-## Quick Start
+## Prerequisites
 
-### Prerequisites
+### System Requirements
+- C++17 compatible compiler (GCC 7+, Clang 5+, or MSVC 2019+)
+- CMake 3.10 or higher
+- Protocol Buffers library and compiler
 
-- C++17 compatible compiler (GCC 7+, Clang 5+, MSVC 2017+)
-- CMake 3.16 or later
-- AVX2 support (optional, falls back to scalar)
+### Installing Dependencies
 
-### Building
+#### Ubuntu/Debian:
+```bash
+sudo apt update
+sudo apt install build-essential cmake libprotobuf-dev protobuf-compiler
+```
+
+#### macOS:
+```bash
+# Using Homebrew
+brew install cmake protobuf
+
+# Using MacPorts
+sudo port install cmake protobuf3-cpp
+```
+
+#### Optional: For running tests
+```bash
+# Ubuntu/Debian
+sudo apt install libgtest-dev
+
+# macOS
+brew install googletest
+```
+
+## Building the Project
+
+1. **Clone and navigate to the project:**
+   ```bash
+   cd /path/to/inference_engine
+   ```
+
+2. **Create build directory:**
+   ```bash
+   mkdir build
+   cd build
+   ```
+
+3. **Configure with CMake:**
+   ```bash
+   cmake ..
+   ```
+
+4. **Build the project:**
+   ```bash
+   make -j$(nproc)  # Linux
+   make -j$(sysctl -n hw.ncpu)  # macOS
+   ```
+
+5. **Run tests (optional):**
+   ```bash
+   make test
+   # Or run individual test
+   ./src/gemm_test
+   ```
+
+## Usage
+
+### Basic Usage
+```bash
+./src/inference_engine <model.onnx> <input_image.ubyte>
+```
+
+### Example Commands
+```bash
+# Using existing test data
+./src/inference_engine ../models/mnist_ffn.onnx ../inputs/image_0.ubyte
+
+# Using generated test images (after running the generator)
+./src/inference_engine ../models/mnist_ffn.onnx ../inputs/digit_5_test.ubyte
+```
+
+## Input Image Format
+
+The engine expects input images in a specific binary format:
+- **File size:** Exactly 784 bytes
+- **Format:** Raw binary data (unsigned 8-bit integers)
+- **Dimensions:** 28x28 pixels, flattened row-by-row
+- **Pixel values:** 0-255 (0 = black, 255 = white)
+
+### Creating Test Images
+
+Use the provided Python utility to generate test images:
 
 ```bash
-# Clone the repository
-git clone https://github.com/jackyyeh5111/Tiny-Neural-Inference-Engine.git
-cd Tiny-Neural-Inference-Engine
+cd utils
 
-# Create build directory
-mkdir build && cd build
+# Generate all digits (0-9)
+python3 create_test_image.py all
 
-# Configure with CMake
-cmake .. -DCMAKE_BUILD_TYPE=Release
+# Generate specific digit
+python3 create_test_image.py 5
 
-# Build the project
-make -j$(nproc)
+# Generate random test image
+python3 create_test_image.py random
 ```
 
-### Build Options
+### Converting Real MNIST Data
 
+If you have MNIST dataset files, you can extract individual images:
+
+```python
+import struct
+import numpy as np
+
+def extract_mnist_image(idx_file, index, output_file):
+    with open(idx_file, 'rb') as f:
+        # Skip header (16 bytes)
+        f.seek(16 + index * 784)
+        image_data = f.read(784)
+        
+    with open(output_file, 'wb') as f:
+        f.write(image_data)
+
+# Example usage
+extract_mnist_image('t10k-images.idx3-ubyte', 0, 'test_image.ubyte')
+```
+
+## Expected Output
+
+When you run the inference engine, you'll see:
+
+1. **Model Information:**
+   - Input/output tensor names
+   - Network architecture (nodes and operations)
+   - Weight loading status
+
+2. **Processing Steps:**
+   - Each operation execution with intermediate results
+   - Tensor dimensions and data flow
+
+3. **Classification Results:**
+   ```
+   === MNIST CLASSIFICATION RESULTS ===
+   Output tensor dimensions: 1 x 10 (total elements: 10)
+   
+   Raw model output (logits): -2.1234, 0.5678, 3.1415, ...
+   
+   --- CLASSIFICATION RESULTS ---
+   Predicted digit: 5
+   Confidence: 89.23%
+   
+   Probability distribution:
+     Digit 0: 0.0012 (0.1%)
+     Digit 1: 0.0034 (0.3%)
+     ...
+     Digit 5: 0.8923 (89.2%)
+     ...
+   
+   Confidence bar for digit 5: ████████████████████ 89.2%
+   ```
+
+## ONNX Model Requirements
+
+The engine currently supports ONNX models with these operations:
+- **Flatten:** Reshape tensors (typically from 1x1x28x28 to 1x784)
+- **Gemm:** Matrix multiplication with bias (fully connected layers)
+- **Relu:** ReLU activation function
+- **Constant:** Constant value nodes
+
+### Typical MNIST Model Architecture:
+```
+Input (1x1x28x28) 
+    ↓
+Flatten → (1x784)
+    ↓
+Gemm → (1x128) + ReLU
+    ↓
+Gemm → (1x64) + ReLU  
+    ↓
+Gemm → (1x10)
+    ↓
+Output (1x10) → Softmax → Classification
+```
+
+## Troubleshooting
+
+### Common Issues:
+
+1. **"Failed to open the ONNX model file"**
+   - Check file path and permissions
+   - Ensure the .onnx file is valid
+
+2. **"Failed to parse the ONNX model"**
+   - Model might be corrupted or unsupported version
+   - Check ONNX model version compatibility
+
+3. **"Input: X not in weights"**
+   - Model has missing initializers
+   - Check if all required weights are present
+
+4. **"Matrix dimensions are not compatible"**
+   - Input image size doesn't match model expectations
+   - Ensure input is exactly 784 bytes (28x28)
+
+5. **Build errors with protobuf:**
+   ```bash
+   # Clear build directory and rebuild
+   rm -rf build
+   mkdir build && cd build
+   cmake .. && make
+   ```
+
+### Debug Mode:
+To get more detailed output, build in debug mode:
 ```bash
-# Enable/disable features
-cmake .. -DBUILD_TESTS=ON          # Build unit tests (default: ON)
-cmake .. -DBUILD_BENCHMARKS=ON     # Build benchmarks (default: ON)
-cmake .. -DENABLE_SIMD=ON          # Enable AVX2 optimizations (default: ON)
-
-# Build types
-cmake .. -DCMAKE_BUILD_TYPE=Release  # Optimized build
-cmake .. -DCMAKE_BUILD_TYPE=Debug    # Debug build with symbols
+cmake -DCMAKE_BUILD_TYPE=Debug ..
+make
 ```
 
-### Running
-
-```bash
-# Run the demo application
-./src/tnie_main
-
-# Run unit tests
-./tests/tnie_tests
-
-# Run benchmarks
-./benchmarks/tnie_benchmark
+## File Structure
 ```
-
-## Architecture Overview
-
-### Core Components
-
-1. **Tensor (`tnie/tensor.h`)**: N-dimensional array abstraction with efficient memory management
-2. **Operators (`tnie/operator.h`)**: Base classes for GEMM, Conv2D, and other operations
-3. **Graph Executor (`tnie/graph.h`)**: Dependency-aware execution engine
-4. **TNIE (`tnie/tnie.h`)**: Main library interface
-
-### Example Usage
-
-```cpp
-#include "tnie/tnie.h"
-using namespace tnie;
-
-// Initialize library
-tnie::initialize();
-
-// Create tensors
-auto A = Tensor::random(Shape({128, 256}));
-auto B = Tensor::random(Shape({256, 64}));
-
-// Create and execute GEMM operation
-auto gemm_op = OperatorFactory::create_gemm("matmul");
-std::vector<Tensor> inputs = {A, B};
-std::vector<Tensor> outputs;
-gemm_op->forward(inputs, outputs);
-
-// Use graph executor for complex workflows
-GraphExecutor executor;
-executor.add_operator(std::move(gemm_op), {0, 1}, {2});
-
-std::vector<Tensor> tensors = {A, B};
-executor.execute(tensors);
-
-// Cleanup
-tnie::finalize();
-```
-
-## Performance
-
-Current implementation includes:
-
-- **SIMD optimizations**: AVX2 implementations for GEMM operations
-- **Memory alignment**: 32-byte aligned memory for optimal SIMD performance
-- **Efficient graph execution**: Topological sorting minimizes redundant operations
-
-### Benchmark Results
-
-Run `./benchmarks/tnie_benchmark` to see performance on your system. Example output:
-
-```
-=== GEMM Benchmark: 256x256 * 256x256 ===
-Average time per iteration: 1250 microseconds
-Performance: 26.8 GFLOPS
-SIMD: AVX2 enabled
+inference_engine/
+├── CMakeLists.txt          # Main build configuration
+├── README.md               # This file
+├── models/
+│   └── mnist_ffn.onnx     # Pre-trained MNIST model
+├── inputs/
+│   ├── image_0.ubyte      # Sample test image
+│   └── ...                # Additional test images
+├── src/
+│   ├── CMakeLists.txt     # Source build configuration
+│   ├── main.cpp           # Main inference engine
+│   ├── gemm.h/.cpp        # Matrix multiplication implementation
+│   ├── onnx-ml.proto      # ONNX protobuf definition
+│   └── test/
+│       └── gemm_test.cpp  # Unit tests
+└── utils/
+    └── create_test_image.py # Test image generator
 ```
 
 ## Development
 
-### Project Structure
+### Adding New Operations:
+1. Add function declaration in `main.cpp`
+2. Implement the operation following existing patterns
+3. Add to the operation dispatch in the main loop
+4. Test with appropriate ONNX models
 
-```
-├── CMakeLists.txt          # Root CMake configuration
-├── README.md               # This file
-├── include/tnie/           # Public headers
-│   ├── tensor.h           # Tensor abstraction
-│   ├── operator.h         # Operator base classes
-│   ├── graph.h            # Graph executor
-│   └── tnie.h             # Main library header
-├── src/                   # Implementation files
-│   ├── CMakeLists.txt     # Source CMake config
-│   ├── main.cpp           # Demo application
-│   ├── tensor.cpp         # Tensor implementation
-│   ├── operator.cpp       # Operator implementations
-│   ├── graph.cpp          # Graph executor implementation
-│   └── tnie.cpp           # Library utilities
-├── tests/                 # Unit tests
-│   ├── CMakeLists.txt     # Test CMake config
-│   ├── test_tensor.cpp    # Tensor tests
-│   ├── test_operator.cpp  # Operator tests
-│   └── test_graph.cpp     # Graph execution tests
-└── benchmarks/            # Performance benchmarks
-    ├── CMakeLists.txt     # Benchmark CMake config
-    └── benchmark_main.cpp # Benchmark suite
-```
-
-### Running Tests
-
-```bash
-# Run all tests
-make test
-
-# Run tests with verbose output
-ctest --verbose
-
-# Run specific test
-./tests/tnie_tests --gtest_filter="TensorTest.*"
-```
-
-### Contributing
-
-1. Follow the existing code style (C++17, 4-space indentation)
-2. Add unit tests for new features
-3. Update benchmarks for performance-critical changes
-4. Ensure all tests pass before submitting
-
-## Roadmap
-
-### Week 0 ✅ (Current)
-- [x] CMake project setup
-- [x] Basic tensor and operator abstractions
-- [x] GEMM and Conv2D implementations
-- [x] Graph executor
-- [x] Unit testing infrastructure
-- [x] Basic benchmarking
-
-### Future Weeks
-- **Week 1**: Multi-threading with worker pools
-- **Week 2**: Advanced SIMD optimizations (kernel optimization, better memory access patterns)
-- **Week 3**: Additional operators (ReLU, Softmax, BatchNorm)
-- **Week 4**: Memory pool and optimization passes
-- **Week 5**: Model loading and real-world benchmarks
+### Contributing:
+- Follow existing code style and documentation patterns
+- Add unit tests for new functionality
+- Update this README for any new features or requirements
 
 ## License
 
-This project is for educational purposes. See LICENSE file for details.
-
-## Acknowledgments
-
-Built as a learning exercise in high-performance computing, SIMD optimization, and neural network inference.
+This project is provided as educational material for understanding ONNX inference engines and neural network inference.

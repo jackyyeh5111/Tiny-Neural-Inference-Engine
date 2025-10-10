@@ -1,44 +1,42 @@
-# Source files
-set(TNIE_SOURCES
-    tensor.cpp
-    operator.cpp
-    graph.cpp
-    tnie.cpp
+
+# Generate protobuf source files from .proto definition
+PROTOBUF_GENERATE_CPP(PROTO_SRCS PROTO_HDRS onnx-ml.proto)
+
+# Print paths to generated files for debugging
+message("PROTO_SRCS = ${PROTO_SRCS}")
+message("PROTO_HDRS = ${PROTO_HDRS}")
+
+# Create the main inference engine executable
+add_executable(inference_engine
+    main.cpp
+    gemm.cpp
+    ${PROTO_SRCS}
+    ${PROTO_HDRS})
+
+# Include directories for protobuf and generated headers
+target_include_directories(inference_engine
+    PUBLIC
+    ${PROTOBUF_INCLUDE_DIRS}
+    ${CMAKE_CURRENT_BINARY_DIR}
 )
 
-# Create the main library
-add_library(tnie ${TNIE_SOURCES})
-
-# Link threading library
-target_link_libraries(tnie PRIVATE Threads::Threads)
-
-# Set target properties
-set_target_properties(tnie PROPERTIES
-    CXX_STANDARD 17
-    CXX_STANDARD_REQUIRED ON
+# Link against protobuf libraries
+target_link_libraries(inference_engine
+    PUBLIC
+    ${PROTOBUF_LIBRARIES}
 )
 
-# Include directories
-target_include_directories(tnie
-    PUBLIC 
-        $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
-        $<INSTALL_INTERFACE:include>
-)
-
-# Create main executable
-add_executable(tnie_main main.cpp)
-target_link_libraries(tnie_main PRIVATE tnie)
-
-# Installation
-install(TARGETS tnie tnie_main
-    EXPORT tnie-targets
-    LIBRARY DESTINATION lib
-    ARCHIVE DESTINATION lib
-    RUNTIME DESTINATION bin
-    INCLUDES DESTINATION include
-)
-
-install(DIRECTORY ${CMAKE_SOURCE_DIR}/include/
-    DESTINATION include
-    FILES_MATCHING PATTERN "*.h"
-)
+# Add testing support if GTest is available
+find_package(GTest QUIET)
+if(GTest_FOUND)
+    enable_testing()
+    
+    # Create GEMM unit test executable
+    add_executable(gemm_test test/gemm_test.cpp gemm.cpp)
+    target_link_libraries(gemm_test GTest::GTest GTest::Main)
+    add_test(NAME gemm_test COMMAND gemm_test)
+    
+    message("Tests enabled: GTest found")
+else()
+    message("Tests disabled: GTest not found")
+endif()
