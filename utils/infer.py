@@ -23,7 +23,7 @@ print("output name:", output_name)
 
 
 # Load and preprocess the MNIST image (now as float32)
-image = load_mnist_image("../inputs/image_0.ubyte")
+image = load_mnist_image("../inputs/img_3.ubyte")
 
 # Run inference
 result = sess.run([output_name], {input_name: image})

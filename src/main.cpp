@@ -5,7 +5,6 @@
 #include <vector>
 #include <iomanip> // For std::hex
 #include <numeric> // for std::accumulate
-#include <span>
 #include <cmath>   // For exp() function in softmax
 #include <algorithm> // For max_element in argmax
 
@@ -49,7 +48,11 @@ int main(int argc, char **argv)
     onnx::ModelProto model;
 
     // Parse the model from the file
-    if (!model.ParseFromIstream(&input))
+    std::stringstream buffer;
+    buffer << input.rdbuf();
+    std::string data = buffer.str();
+
+    if (!model.ParseFromString(data))
     {
         std::cerr << "Failed to parse the ONNX model!" << std::endl;
         return -1;
