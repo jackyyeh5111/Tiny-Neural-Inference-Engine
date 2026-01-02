@@ -1,4 +1,3 @@
-
 # Generate protobuf source files from .proto definition
 PROTOBUF_GENERATE_CPP(PROTO_SRCS PROTO_HDRS onnx-ml.proto)
 
