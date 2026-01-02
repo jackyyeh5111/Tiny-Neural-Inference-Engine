@@ -63,4 +63,11 @@ namespace tiny_engine::utils {
         return modelInput;
     }
 
+    void print_tensor_dims(const std::string& name, const onnx::TensorProto& tensor) {
+        std::cout << name << " shape: [";
+        for (int i = 0; i < tensor.dims_size(); ++i) {
+            std::cout << tensor.dims(i) << (i == tensor.dims_size() - 1 ? "" : ", ");
+        }
+        std::cout << "]" << std::endl;
+    }
 }  // namespace tiny_engine::utils

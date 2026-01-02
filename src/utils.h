@@ -10,4 +10,6 @@ namespace tiny_engine::utils {
 
     TensorPtr read_input(const std::string& filename);
 
+    void print_tensor_dims(const std::string& name, const onnx::TensorProto& tensor);
+
 }  // namespace tiny_engine::utils

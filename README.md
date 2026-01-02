@@ -2,6 +2,9 @@
 
 A lightweight C++ inference engine for MNIST digit classification using ONNX models. This engine loads ONNX neural network models and performs inference on 28x28 grayscale images to classify handwritten digits (0-9).
 
+## MNIST Convolution model
+- https://github.com/pytorch/examples/tree/main/mnist
+
 ## Features
 
 - ✅ ONNX model loading and parsing using Protocol Buffers
@@ -29,22 +32,10 @@ sudo apt update
 sudo apt install build-essential cmake libprotobuf-dev protobuf-compiler
 ```
 
-#### macOS:
-```bash
-# Using Homebrew
-brew install cmake protobuf
-
-# Using MacPorts
-sudo port install cmake protobuf3-cpp
-```
-
 #### Optional: For running tests
 ```bash
 # Ubuntu/Debian
 sudo apt install libgtest-dev
-
-# macOS
-brew install googletest
 ```
 
 ## Building the Project

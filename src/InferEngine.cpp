@@ -119,4 +119,7 @@ void InferEngine::_register_operators() {
     op_registry_["Relu"] = ops::relu;
     op_registry_["Flatten"] = ops::flatten;
     op_registry_["Gemm"] = ops::gemm;
+    op_registry_["Conv"] = ops::conv;
+    op_registry_["MaxPool"] = ops::maxpool;
+    op_registry_["LogSoftmax"] = ops::log_softmax;
 }

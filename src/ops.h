@@ -13,5 +13,14 @@ namespace tiny_engine::ops {
     TensorPtr gemm(const std::vector<const onnx::TensorProto*>& inputs,
                    const onnx::NodeProto& node);
 
+    TensorPtr conv(const std::vector<const onnx::TensorProto*>& inputs,
+                   const onnx::NodeProto& node);
+
+    TensorPtr maxpool(const std::vector<const onnx::TensorProto*>& inputs,
+                      const onnx::NodeProto& node);
+
+    TensorPtr log_softmax(const std::vector<const onnx::TensorProto*>& inputs,
+                          const onnx::NodeProto& node);
+
     void _gemm(const float* A, const float* B, const float* C, float* out, int m, int n, int k);
 }
