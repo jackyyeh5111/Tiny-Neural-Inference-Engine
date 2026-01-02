@@ -20,7 +20,7 @@ namespace tiny_engine::utils {
         return std::distance(input.begin(), std::max_element(input.begin(), input.end()));
     }
 
-    TensorPtr read_input(const std::string& filename) {
+    TensorPtr read_mnist_input(const std::string& filename) {
         std::ifstream file(filename, std::ios::binary);
 
         if (!file.is_open()) {
@@ -36,29 +36,23 @@ namespace tiny_engine::utils {
             throw std::runtime_error("Input file size mismatch. Expected 784 bytes.");
         }
 
-        // Convert to float and normalize (0-255 -> 0.0-1.0)
+        // Convert to float, Scale (0-1), and Normalize (Standardize)
         std::vector<float> floatValues(num_pixels);
         for (size_t i = 0; i < num_pixels; ++i) {
-            floatValues[i] = static_cast<float>(bytes[i]) / 255.0f;
+            floatValues[i] = static_cast<float>(bytes[i]);
         }
 
-        // Create the Tensor using unique_ptr
         auto modelInput = std::make_unique<onnx::TensorProto>();
 
-        // This name should match the first input name of your graph
-        modelInput->set_name("onnx::Flatten_0");
+        modelInput->set_name("dummy_input");  // input name will be modified later
         modelInput->set_data_type(onnx::TensorProto::FLOAT);
 
-        // Set dimensions: Batch=1, Channels=1, Height=28, Width=28
         modelInput->add_dims(1);
         modelInput->add_dims(1);
         modelInput->add_dims(28);
         modelInput->add_dims(28);
 
-        // Copy data into the Protobuf internal buffer
         modelInput->set_raw_data(floatValues.data(), floatValues.size() * sizeof(float));
-
-        std::cout << "[LOADER] Input loaded and normalized. Shape: [1, 1, 28, 28]" << std::endl;
 
         return modelInput;
     }

@@ -25,6 +25,10 @@ bool InferEngine::load_model(const std::string& filename) {
 void InferEngine::set_input(TensorPtr input_tensor) {
     input_storage_ = std::move(input_tensor);
 
+    // set input name
+    const auto& input_name = model_.graph().node()[0].input(0);
+    input_storage_->set_name(input_name);
+
     std::cout << "Input tensor name: " << input_storage_->name() << std::endl;
     weights_map_[input_storage_->name()] = input_storage_.get();
 }
@@ -33,7 +37,7 @@ void InferEngine::run() {
     const auto& graph = model_.graph();
 
     // print all name in weights_map_
-    std::cout << "=== Weights Map Contents ===" << std::endl;
+    std::cout << "\n=== Weights Map Contents ===" << std::endl;
     for (const auto& pair : weights_map_) {
         std::cout << "Tensor Name: " << pair.first << std::endl;
     }
@@ -48,10 +52,12 @@ void InferEngine::run() {
         std::vector<const onnx::TensorProto*> inputs;
         for (const auto& in_name : node.input()) {
             std::cout << "  - Input: " << in_name << std::endl;
-            if (weights_map_.count(in_name)) {
-                std::cout << "    (found in weights_map_)" << std::endl;
-                inputs.push_back(weights_map_[in_name]);
+
+            if (weights_map_.count(in_name) == 0) {
+                throw std::runtime_error("Input tensor " + in_name + " not found in weights_map_");
             }
+
+            inputs.push_back(weights_map_[in_name]);
         }
 
         // Execute Operator

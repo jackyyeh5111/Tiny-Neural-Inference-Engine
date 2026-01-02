@@ -8,7 +8,7 @@ namespace tiny_engine::utils {
 
     int argmax(const std::vector<float>& input);
 
-    TensorPtr read_input(const std::string& filename);
+    TensorPtr read_mnist_input(const std::string& filename);
 
     void print_tensor_dims(const std::string& name, const onnx::TensorProto& tensor);
 

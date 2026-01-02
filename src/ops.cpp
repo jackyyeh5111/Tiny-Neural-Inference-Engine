@@ -132,8 +132,8 @@ namespace tiny_engine::ops {
         const auto* W = inputs[1];                                  // Weight: [M, C, kH, kW]
         const auto* B = (inputs.size() > 2) ? inputs[2] : nullptr;  // Bias: [M]
 
-        tiny_engine::utils::print_tensor_dims("Input X", *X);
-        tiny_engine::utils::print_tensor_dims("Input W", *W);
+        utils::print_tensor_dims("Input X", *X);  // [32, 1, 3, 3]
+        utils::print_tensor_dims("Input W", *W);  // [32]
 
         // Simplified: Assume default stride=1, padding=0 for brevity
         int64_t N = X->dims(0), C = X->dims(1), H = X->dims(2), W_in = X->dims(3);

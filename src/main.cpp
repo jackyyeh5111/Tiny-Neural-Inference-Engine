@@ -13,7 +13,7 @@ int main(int argc, char* argv[]) {
         return -1;
 
     // Load Input (Simplified wrapper)
-    TensorPtr input_tensor = utils::read_input(argv[2]);
+    TensorPtr input_tensor = utils::read_mnist_input(argv[2]);
     engine.set_input(std::move(input_tensor));
 
     engine.run();
