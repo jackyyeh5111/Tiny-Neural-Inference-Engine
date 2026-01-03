@@ -5,26 +5,36 @@ A lightweight C++ inference engine for MNIST digit classification using ONNX mod
 ## MNIST Convolution model
 - https://github.com/pytorch/examples/tree/main/mnist
 
-## Features
+## Quick Start
 
-- ✅ ONNX model loading and parsing using Protocol Buffers
-- ✅ Support for common neural network operations:
-  - Flatten (tensor reshaping)
-  - GEMM (General Matrix Multiplication) - fully connected layers
-  - ReLU activation function
-  - Constant value handling
-- ✅ MNIST image loading from binary files
-- ✅ Softmax classification with confidence scores
-- ✅ Detailed output visualization
+Prepare onnx-ml
+```bash
+$ wget https://raw.githubusercontent.com/onnx/onnx/main/onnx/onnx-ml.proto
+$ cd src
+$ protoc --cpp_out=. onnx-ml.proto
+```
 
-## Prerequisites
+Export model to onnx:
+```bash
+$ cd mnist
+$ python train.py --save_model
+```
 
-### System Requirements
-- C++17 compatible compiler (GCC 7+, Clang 5+, or MSVC 2019+)
-- CMake 3.10 or higher
-- Protocol Buffers library and compiler
+Convert JPG to bytes (serve as inputs to inference engine)
+```bash
+$ cd mnist
+$ python img2bytes.py
+```
 
-### Installing Dependencies
+Compile inference engine and run:
+```bash
+$ mkdir build && cmake -S . -B build && make -C build -j$(nproc)
+$ ./build/src/inference_engine models/mnist_cnn.onnx mnist/images/num_2.bin
+```
+
+## Dataset
+- [mnist jpg files](https://www.kaggle.com/datasets/scolianni/mnistasjpg)
+
 
 #### Ubuntu/Debian:
 ```bash
