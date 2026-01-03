@@ -101,7 +101,13 @@ void InferEngine::_process_results(const std::string& output_name) {
 }
 
 void InferEngine::_display_mnist_classification(const std::vector<float>& logits) {
-    auto probs = utils::softmax(logits);
+    std::vector<float> probs;
+    for (size_t i = 0; i < logits.size(); ++i) {
+        probs.push_back(std::exp(logits[i]));
+        std::cout << "Logit[" << i << "] = " << probs[i] << std::endl;
+    }
+
+    // auto probs = utils::softmax(logits);
     int prediction = utils::argmax(probs);
     float confidence = probs[prediction];
 

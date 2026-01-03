@@ -41,15 +41,18 @@ model = Net().to(device)
 model.load_state_dict(torch.load("mnist_cnn.pt"))
 model.eval()
 
+
 def predict_image(image_path):
     # 3. Pre-processing
     # MNIST images are 28x28 grayscale. We must match the training transforms.
-    transform = transforms.Compose([
-        transforms.Grayscale(num_output_channels=1),
-        transforms.Resize((28, 28)),
-        transforms.ToTensor(),
-        transforms.Normalize((0.1307,), (0.3081,))
-    ])
+    transform = transforms.Compose(
+        [
+            transforms.Grayscale(num_output_channels=1),
+            transforms.Resize((28, 28)),
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,)),
+        ]
+    )
 
     # Load image and add batch dimension (1, 1, 28, 28)
     img = Image.open(image_path)
@@ -61,15 +64,49 @@ def predict_image(image_path):
 
         # [Optional] Convert Log-Softmax to standard Probabilities
         probs = torch.exp(output)
-        
+
         print("Model output logits:", probs)
-        
+
         # The model uses log_softmax, so we take the index of the highest value
         prediction = probs.argmax(dim=1, keepdim=True).item()
-        
+
     return prediction
 
-# Usage
-image_file = "/home/jackyyeh/playground/Tiny-Neural-Inference-Engine/inputs/testSet/img_6.jpg" 
-result = predict_image(image_file)
-print(f"Predicted Digit: {result}")
+
+def export_tensor_for_cpp(image_path):
+    transform = transforms.Compose(
+        [
+            transforms.Grayscale(num_output_channels=1),
+            transforms.Resize((28, 28)),
+            transforms.ToTensor(),
+            transforms.Normalize((0.1307,), (0.3081,)),
+        ]
+    )
+
+    img = Image.open(image_path)
+    img_tensor = transform(img).unsqueeze(0)  # Shape: (1, 1, 28, 28)
+
+    # Convert to numpy and ensure it is float32 (matches C++ float)
+    # .numpy() sharing memory, .flatten() makes it a 1D array of 784 elements
+    data = img_tensor.detach().cpu().numpy().astype("float32").flatten()
+
+    # Write raw bytes to file
+    image_name = image_path.split("/")[-1].split(".")[0]
+    out_dir = '/'.join(image_path.split("/")[:-1])
+    out_file = f"{out_dir}/{image_name}.bin"
+    with open(out_file, "wb") as f:
+        f.write(data.tobytes())
+
+    print(f"Tensor exported to {out_file} ({len(data)} floats)")
+
+
+if __name__ == "__main__":
+    # Usage
+    image_file = "./images/num_2.jpg"
+
+    # export
+    export_tensor_for_cpp(image_file)
+
+    # result = predict_image(image_file)
+    # print(f"Predicted Digit: {result}")
+    
