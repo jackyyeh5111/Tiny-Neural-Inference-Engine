@@ -54,6 +54,7 @@ namespace tiny_engine::ops {
         }
 
         // 1. Parse Attributes
+        // ONNX Gemm: alpha * AB + beta * C
         float alpha = 1.0f, beta = 1.0f;
         int transA = 0, transB = 0;
         for (const auto& attr : node.attribute()) {
@@ -282,17 +283,14 @@ namespace tiny_engine::ops {
                const int n,
                const int m,
                const int k) {
-        // Perform matrix multiplication: out = A * B
-        for (int r = 0; r < n; ++r)  // Iterate through rows of A
-        {
-            for (int c = 0; c < k; ++c)  // Iterate through columns of B
-            {
-                float res = 0.0f;
-                // Compute dot product of row r of A with column c of B
-                for (int i = 0; i < m; ++i) {
-                    res += A[r * m + i] * B[i * k + c];
+
+        // cache friendly matmul: out = A * B
+        for (int r = 0; r < n; ++r) {
+            for (int i = 0; i < m; ++i) {
+                float a = A[r * m + i];
+                for (int c = 0; c < k; ++c) {
+                    out[r * k + c] += a * B[i * k + c];
                 }
-                out[r * k + c] = res;
             }
         }
 
