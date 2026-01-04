@@ -82,11 +82,23 @@ namespace tiny_engine::ops {
 
         // TODO: improve transpose
         // Simple transpose helper for B (most common case in FC layers)
+        std::vector<float> a_processed;
+        if (transA) {
+            a_processed.resize(M * K);
+            int orig_rows = A->dims(0);
+            int orig_cols = A->dims(1);
+            for (int r = 0; r < orig_rows; ++r)
+                for (int c = 0; c < orig_cols; ++c)
+                    a_processed[c * orig_rows + r] = a_ptr[r * orig_cols + c];
+            a_ptr = a_processed.data();
+        }
+
+        // Simple transpose helper for B (most common case in FC layers)
         std::vector<float> b_processed;
         if (transB) {
             b_processed.resize(K * N);
-            int orig_rows = B->dims(0);  // K
-            int orig_cols = B->dims(1);  // N
+            int orig_rows = B->dims(0);
+            int orig_cols = B->dims(1);
             for (int r = 0; r < orig_rows; ++r)
                 for (int c = 0; c < orig_cols; ++c)
                     b_processed[c * orig_rows + r] = b_ptr[r * orig_cols + c];
@@ -104,7 +116,7 @@ namespace tiny_engine::ops {
                 for (int j = 0; j < N; ++j) {
                     // Handle broadcast of 1D bias or full 2D bias
                     int c_idx = (C->dims_size() == 1) ? j : (i * N + j);
-                    c_data[i * N + j] = c_ptr[c_idx] * beta;
+                    c_data[i * N + j] = c_ptr[c_idx];
                 }
             }
         }
@@ -112,7 +124,7 @@ namespace tiny_engine::ops {
         // 5. Execute Math
         std::vector<float> out_data(M * N);
         // Call your raw gemm function from gemm.h
-        _gemm(a_ptr, b_ptr, c_data.data(), out_data.data(), M, K, N);
+        _gemm(a_ptr, b_ptr, c_data.data(), out_data.data(), M, K, N, alpha, beta);
 
         // 6. Wrap in TensorProto
         auto result = std::make_unique<onnx::TensorProto>();
@@ -280,9 +292,11 @@ namespace tiny_engine::ops {
                const float* B,
                const float* C,
                float* out,
-               const int n,
-               const int m,
-               const int k) {
+               int n,
+               int m,
+               int k,
+               float alpha,
+               float beta) {
 
         // cache friendly matmul: out = A * B
         for (int r = 0; r < n; ++r) {
@@ -294,10 +308,10 @@ namespace tiny_engine::ops {
             }
         }
 
-        // Add bias term: out = out + C
+        // onnx Gemm: alpha * AB + beta * C
         for (int r = 0; r < n; ++r) {
             for (int c = 0; c < k; ++c) {
-                out[r * k + c] += C[r * k + c];
+                out[r * k + c] = alpha * out[r * k + c] + beta * C[r * k + c];
             }
         }
     }
