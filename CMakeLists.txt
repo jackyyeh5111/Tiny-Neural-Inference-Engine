@@ -8,7 +8,13 @@ set(CMAKE_BUILD_TYPE Release)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -g -fno-omit-frame-pointer -fno-inline")
+if(CMAKE_BUILD_TYPE MATCHES "Debug")
+    message(STATUS "Configuring for Debug build")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O0 -g")
+else()
+    message(STATUS "Configuring for Release build")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -O3 -march=native -ffast-math -fopt-info-vec-optimized -fopenmp -DNDEBUG")
+endif()
 
 # Find required dependencies
 find_package(Protobuf REQUIRED)
