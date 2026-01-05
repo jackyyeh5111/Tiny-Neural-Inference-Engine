@@ -137,57 +137,163 @@ namespace tiny_engine::ops {
         return result;
     }
 
-    // TODO: Add padding, stride, dilation, etc.
-    // TODO: Optimize with im2col + GEMM for better performance
+    // Helper to get attributes with defaults
+    int64_t get_attr(const onnx::NodeProto& node, const std::string& name, int64_t default_val) {
+        for (const auto& attr : node.attribute()) {
+            if (attr.name() == name)
+                return attr.i();
+        }
+        return default_val;
+    }
+
+    std::vector<int64_t> get_attrs(const onnx::NodeProto& node,
+                                   const std::string& name,
+                                   int64_t count,
+                                   int64_t default_val) {
+        for (const auto& attr : node.attribute()) {
+            if (attr.name() == name) {
+                return {attr.ints().begin(), attr.ints().end()};
+            }
+        }
+        return std::vector<int64_t>(count, default_val);
+    }
+
     TensorPtr conv(const std::vector<const onnx::TensorProto*>& inputs,
                    const onnx::NodeProto& node) {
-        const auto* X = inputs[0];                                  // Input: [N, C, H, W]
-        const auto* W = inputs[1];                                  // Weight: [M, C, kH, kW]
-        const auto* B = (inputs.size() > 2) ? inputs[2] : nullptr;  // Bias: [M]
+        const auto* X = inputs[0];
+        const auto* W = inputs[1];
+        const auto* B = (inputs.size() > 2) ? inputs[2] : nullptr;
 
-        utils::print_tensor_dims("Input X", *X);  // [32, 1, 3, 3]
-        utils::print_tensor_dims("Input W", *W);  // [32]
+        // 1. Get Attributes
+        auto strides = get_attrs(node, "strides", 2, 1);      // {sH, sW}
+        auto pads = get_attrs(node, "pads", 4, 0);            // {t, l, b, r}
+        auto dilations = get_attrs(node, "dilations", 2, 1);  // {dH, dW}
 
-        // Simplified: Assume default stride=1, padding=0 for brevity
         int64_t N = X->dims(0), C = X->dims(1), H = X->dims(2), W_in = X->dims(3);
         int64_t M = W->dims(0), kH = W->dims(2), kW = W->dims(3);
 
-        int64_t H_out = H - kH + 1;
-        int64_t W_out = W_in - kW + 1;
+        // 2. Calculate Output Dimensions
+        int64_t H_out = (H + pads[0] + pads[2] - (dilations[0] * (kH - 1) + 1)) / strides[0] + 1;
+        int64_t W_out =
+                (W_in + pads[1] + pads[3] - (dilations[1] * (kW - 1) + 1)) / strides[1] + 1;
 
-        std::vector<float> out_data(N * M * H_out * W_out, 0.0f);
         const float* x_ptr = reinterpret_cast<const float*>(X->raw_data().data());
         const float* w_ptr = reinterpret_cast<const float*>(W->raw_data().data());
         const float* b_ptr = B ? reinterpret_cast<const float*>(B->raw_data().data()) : nullptr;
 
-        for (int n = 0; n < N; ++n) {
-            for (int m = 0; m < M; ++m) {  // For each output channel
-                for (int oh = 0; oh < H_out; ++oh) {
-                    for (int ow = 0; ow < W_out; ++ow) {
-                        float sum = b_ptr ? b_ptr[m] : 0.0f;
-                        for (int c = 0; c < C; ++c) {
-                            for (int kh = 0; kh < kH; ++kh) {
-                                for (int kw = 0; kw < kW; ++kw) {
-                                    int x_idx = n * (C * H * W_in) + c * (H * W_in) +
-                                                (oh + kh) * W_in + (ow + kw);
-                                    int w_idx = m * (C * kH * kW) + c * (kH * kW) + kh * kW + kw;
-                                    sum += x_ptr[x_idx] * w_ptr[w_idx];
+        std::vector<float> final_out(N * M * H_out * W_out);
+
+        // 3. Process Batch
+        // im2col size: [C * kH * kW] x [H_out * W_out]
+        int64_t k_size = C * kH * kW;
+        int64_t n_patches = H_out * W_out;
+        std::vector<float> col_data(k_size * n_patches);
+
+        for (int64_t n = 0; n < N; ++n) {
+            // --- im2col Step ---
+            for (int64_t c = 0; c < C; ++c) {
+                for (int64_t kh = 0; kh < kH; ++kh) {
+                    for (int64_t kw = 0; kw < kW; ++kw) {
+                        int64_t row = (c * kH * kW) + (kh * kW) + kw;
+                        for (int64_t oh = 0; oh < H_out; ++oh) {
+                            for (int64_t ow = 0; ow < W_out; ++ow) {
+                                int64_t h_in = oh * strides[0] + kh * dilations[0] - pads[0];
+                                int64_t w_in = ow * strides[1] + kw * dilations[1] - pads[1];
+
+                                float val = 0;
+                                if (h_in >= 0 && h_in < H && w_in >= 0 && w_in < W_in) {
+                                    val = x_ptr[n * (C * H * W_in) + c * (H * W_in) + h_in * W_in +
+                                                w_in];
                                 }
+                                col_data[row * n_patches + (oh * W_out + ow)] = val;
                             }
                         }
-                        out_data[n * (M * H_out * W_out) + m * (H_out * W_out) + oh * W_out + ow] =
-                                sum;
+                    }
+                }
+            }
+
+            // --- GEMM Step ---
+            // Weight: [M x k_size], Col: [k_size x n_patches] -> Out: [M x n_patches]
+            float* batch_out_ptr = &final_out[n * M * n_patches];
+
+            // We use alpha=1.0. Bias is handled after or via beta=1.0 if we broadcast B
+            // Note: Your _gemm expects C to be the same size as Out.
+            // We'll manually handle bias for efficiency since it's just a 1D vector.
+            std::fill(batch_out_ptr, batch_out_ptr + (M * n_patches), 0.0f);
+
+            _gemm(w_ptr,
+                  col_data.data(),
+                  nullptr,
+                  batch_out_ptr,
+                  M,
+                  k_size,
+                  n_patches,
+                  1.0f,
+                  0.0f);
+
+            // --- Apply Bias ---
+            if (b_ptr) {
+                for (int m = 0; m < M; ++m) {
+                    for (int p = 0; p < n_patches; ++p) {
+                        batch_out_ptr[m * n_patches + p] += b_ptr[m];
                     }
                 }
             }
         }
 
+        // 4. Wrap result
         auto result = std::make_unique<onnx::TensorProto>();
         result->set_data_type(onnx::TensorProto::FLOAT);
         for (auto d : {N, M, H_out, W_out})
             result->add_dims(d);
-        result->set_raw_data(out_data.data(), out_data.size() * sizeof(float));
+        result->set_raw_data(final_out.data(), final_out.size() * sizeof(float));
         return result;
+    }
+
+    /**
+     * @brief Performs General Matrix Multiplication with bias: out = A * B + C
+     *
+     * This function implements GEMM (General Matrix Multiplication) which is fundamental
+     * for neural network operations, particularly fully connected layers.
+     *
+     * @param A Input matrix A with dimensions (n x m) in row-major order
+     * @param B Input matrix B with dimensions (m x k) in row-major order
+     * @param C Bias vector with dimensions (n x k) in row-major order
+     * @param out Output matrix with dimensions (n x k) in row-major order
+     * @param n Number of rows in A and output
+     * @param m Number of columns in A and rows in B
+     * @param k Number of columns in B and output
+     */
+    void _gemm(const float* A,
+               const float* B,
+               const float* C,
+               float* out,
+               int n,
+               int m,
+               int k,
+               float alpha,
+               float beta) {
+
+        // cache friendly matmul: out = A * B
+        for (int r = 0; r < n; ++r) {
+            for (int i = 0; i < m; ++i) {
+                float a = A[r * m + i];
+                for (int c = 0; c < k; ++c) {
+                    out[r * k + c] += a * B[i * k + c];
+                }
+            }
+        }
+
+        // No bias, return
+        if (C == nullptr)
+            return;
+
+        // onnx Gemm: alpha * AB + beta * C
+        for (int r = 0; r < n; ++r) {
+            for (int c = 0; c < k; ++c) {
+                out[r * k + c] = alpha * out[r * k + c] + beta * C[r * k + c];
+            }
+        }
     }
 
     TensorPtr maxpool(const std::vector<const onnx::TensorProto*>& inputs,
@@ -272,48 +378,6 @@ namespace tiny_engine::ops {
 
         outputTensor->set_name(node.output(0));
         return outputTensor;
-    }
-
-    /**
-     * @brief Performs General Matrix Multiplication with bias: out = A * B + C
-     *
-     * This function implements GEMM (General Matrix Multiplication) which is fundamental
-     * for neural network operations, particularly fully connected layers.
-     *
-     * @param A Input matrix A with dimensions (n x m) in row-major order
-     * @param B Input matrix B with dimensions (m x k) in row-major order
-     * @param C Bias vector with dimensions (n x k) in row-major order
-     * @param out Output matrix with dimensions (n x k) in row-major order
-     * @param n Number of rows in A and output
-     * @param m Number of columns in A and rows in B
-     * @param k Number of columns in B and output
-     */
-    void _gemm(const float* A,
-               const float* B,
-               const float* C,
-               float* out,
-               int n,
-               int m,
-               int k,
-               float alpha,
-               float beta) {
-
-        // cache friendly matmul: out = A * B
-        for (int r = 0; r < n; ++r) {
-            for (int i = 0; i < m; ++i) {
-                float a = A[r * m + i];
-                for (int c = 0; c < k; ++c) {
-                    out[r * k + c] += a * B[i * k + c];
-                }
-            }
-        }
-
-        // onnx Gemm: alpha * AB + beta * C
-        for (int r = 0; r < n; ++r) {
-            for (int c = 0; c < k; ++c) {
-                out[r * k + c] = alpha * out[r * k + c] + beta * C[r * k + c];
-            }
-        }
     }
 
 }  // namespace tiny_engine::ops
